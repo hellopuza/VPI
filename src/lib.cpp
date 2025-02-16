@@ -1,10 +1,12 @@
 #include <vpi_user.h>
-#include <stdlib.h>
+#include <cstdlib>
+#include <cstring>
 
 #define assert(err) \
     if (!(err)) { vpi_printf("Assertion " #err " failed!\n"); exit(-1); }
 
-char const* get_full_name()
+static char const*
+get_full_name()
 {
     s_vpi_vlog_info info;
     assert(
@@ -15,20 +17,60 @@ char const* get_full_name()
     return info.argv[1];
 }
 
-PLI_INT32 callback(p_cb_data)
+static void
+find_instances(vpiHandle module_handle, char const* module_name)
 {
-    char const* full_name = get_full_name();
-    vpi_printf("%s\n", full_name);
+    vpiHandle iter_handle = vpi_iterate(vpiModule, module_handle);
+    if (!iter_handle)
+    {
+        // No submodules!
+        return;
+    }
+
+    vpiHandle submodule_handle;
+    while ((submodule_handle = vpi_scan(iter_handle)) != NULL)
+    {
+        char* def_name = vpi_get_str(vpiDefName, submodule_handle);
+        if (!strcmp(def_name, module_name))
+        {
+            vpi_printf("%s ", vpi_get_str(vpiFullName, submodule_handle));
+            vpi_printf("%s\n", vpi_get_str(vpiType, submodule_handle));
+        }
+
+        find_instances(submodule_handle, module_name);
+        assert(
+            vpi_free_object(submodule_handle));
+    }
+}
+
+static PLI_INT32
+callback(p_cb_data)
+{
+    char const* module_name = get_full_name();
+
+    vpiHandle iter_handle = vpi_iterate(vpiModule, NULL);
+    if (!iter_handle)
+    {
+        vpi_printf("No modules found!\n");
+        vpi_control(vpiFinish, 0);
+        return -1;
+    }
 
     vpiHandle module_handle;
-    assert(
-        module_handle = vpi_handle_by_name(full_name, NULL));
+    while ((module_handle = vpi_scan(iter_handle)) != NULL)
+    {
+        // Iterate through top modules and find instances
+        find_instances(module_handle, module_name);
+        assert(
+            vpi_free_object(module_handle));
+    }
 
     vpi_control(vpiFinish, 0);
     return 0;
 }
 
-void callback_register()
+static void
+callback_register()
 {
     s_cb_data data{
         .reason = cbStartOfSimulation,
